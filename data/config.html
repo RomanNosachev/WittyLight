@@ -1,0 +1,26 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <title>Witty Light Configurator</title>
+    <link rel="stylesheet" type="text/css" href="style.css">
+  </head>
+  <body>
+    <div id="apFormDiv">
+      <form id="apForm" method="post">
+        <table>
+			<tr>
+				<td><label for="ssidField">SSID</label></td>
+				<td><input id="ssidField" type="text" name="ssid" required></input></td>
+			</tr>
+			<tr>
+				<td><label for="passwordField">Password</label></td>
+				<td><input id="passwordField" type="password" name="password" required minlength="8"></input></td>
+			</tr>
+			<tr>
+				<td colspan="2"><input id="apFormSubmit" type="submit" value="Save"></input></td>
+			</tr>
+		</table>
+      </form>
+    </div>
+  </body>
+</html>

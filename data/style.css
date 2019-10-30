@@ -4,3 +4,7 @@
 #effectFormDiv {display:flex; align-items:center; justify-content:center; height:100%}
 .effectForm {display:inline-block;}
 .effectSubmit {top:100px; margin:20px; width:100px; height:100px;}
+
+table {margin:auto;}
+td {text-align:center;}
+#apFormSubmit {margin:10%; width:50%;}

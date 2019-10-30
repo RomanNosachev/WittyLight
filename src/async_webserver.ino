@@ -4,19 +4,39 @@
 #include <ArduinoJson.h>
 #include <Adafruit_NeoPixel.h>
 
+#include "Effect.h"
+#include "RainbowCycle.h"
+#include "SingleColor.h"
+
+#include "EffectController.h"
+
 String ssid;
 String password;
 
 AsyncWebServer server(80);
 
-const String CONFIG_FILE = "/config.json";
-
-bool fileSystemMounted = false;
+IPAddress ap_local_IP(192, 168, 0, 1);
+IPAddress ap_gateway(192, 168, 0, 1);
+IPAddress ap_subnet(255, 255, 255, 0);
 
 const int led_pin = 5;
 const int led_count = 60;
 
-struct Color {
+Adafruit_NeoPixel strip(led_count, led_pin, NEO_GRB + NEO_KHZ800);
+
+long lastUpdate;
+long interval = 100;
+
+EffectController controller;
+
+RainbowCycle effect(strip, 255);
+SingleColor singleColor(strip, Color(0, 0, 0));
+
+const String CONFIG_FILE = "/config.json";
+
+bool fileSystemMounted = false;
+
+struct SColor {
   byte RED;
   byte GREEN;
   byte BLUE;
@@ -29,6 +49,9 @@ const int RGB_PATTERN_LENGTH = 6;
 const String EFFECT_REQUEST_PATTERN = "effect";
 const String COLOR_REQUEST_PATTERN = "color";
 
+bool reconfigSTA();
+void onWiFiConnected();
+
 bool saveConfig();
 bool loadConfig();
 
@@ -37,13 +60,13 @@ void displayStaticColor();
 bool handleMessage();
 bool processRequest(String request);
 
-Color parseRGB(String tempColorString);
+SColor parseRGB(String tempColorString);
 bool validateColorString(String tempColorString);
 
-Adafruit_NeoPixel strip(led_count, led_pin, NEO_GRB + NEO_KHZ800);
+bool operator==(const SColor& lColor, const SColor& rColor);
+bool operator!=(const SColor& lColor, const SColor& rColor);
 
-bool operator==(const Color& lColor, const Color& rColor);
-bool operator!=(const Color& lColor, const Color& rColor);
+void nullFunc() {}
 
 void setup()
 {
@@ -53,22 +76,88 @@ void setup()
 
   Serial.begin(115200);
 
-  if (loadConfig())
-    displayStaticColor();
+  loadConfig();
+  //if (loadConfig())
+  //  displayStaticColor();
+
+  controller.setInterval(200);
 
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
 
   WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
-  while (WiFi.status() != WL_CONNECTED)
+  int attemptsCount = 30;
+
+  while (WiFi.status() != WL_CONNECTED && attemptsCount--)
   {
     delay(500);
     Serial.print(".");
   }
 
+  if (attemptsCount <= 0)
+  {
+    Serial.println();
+    Serial.println("! Could not connected to " + ssid + " !");
+    Serial.println("Switch to access point mode");
+
+    WiFi.disconnect();
+
+    WiFi.mode(WIFI_AP_STA);
+
+    Serial.print("Setting soft-AP configuration ... ");
+    Serial.println(WiFi.softAPConfig(ap_local_IP, ap_gateway, ap_subnet) ? "Ready" : "Failed!");
+
+    bool apReady = WiFi.softAP("WittyLight_" + WiFi.softAPmacAddress());
+
+    Serial.print("Starting soft-AP ... ");
+    Serial.println(apReady ? "Ready" : "Failed!");
+
+    if (apReady)
+    {
+      Serial.println("Soft-AP MAC: ");
+      Serial.println(WiFi.softAPmacAddress());
+
+      Serial.println("Soft-AP local IP: ");
+      Serial.println(WiFi.softAPIP());
+
+      server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(SPIFFS, "/config.html", String(), false, processor);
+      });
+
+      server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(SPIFFS, "/style.css", "text/css");
+      });
+
+      server.on("/", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (request->hasParam("ssid", true) && request->hasParam("password", true))
+        {
+          ssid = request->getParam("ssid", true)->value();
+          password = request->getParam("password", true)->value();
+
+          Serial.println("SSID and password received, connection attempt...");
+
+          request->send(SPIFFS, "/config.html", String(), false, processor);
+
+          saveConfig();
+
+          ESP.restart();
+        }
+
+      });
+
+      server.begin();
+    }
+  }
+  else
+    onWiFiConnected();
+}
+
+void onWiFiConnected()
+{
   Serial.println();
   Serial.println("WiFi connected");
 
@@ -100,25 +189,30 @@ void setup()
   Serial.println("/");
 }
 
-void loop()
+bool reconfigSTA()
 {
 
+}
+
+void loop()
+{
+  controller.update();
 }
 
 String processor(const String& var)
 {
   if (var == "COLOR_STRING")
   {
-    Serial.println("Cathed");
+    Serial.println("Catched");
     Serial.println(currentColorString);
 
     return currentColorString;
   }
 }
 
-Color parseRGB(String colorString)
+SColor parseRGB(String colorString)
 {
-  Color color;
+  SColor color;
 
   Serial.println("PARSE");
   Serial.println(colorString);
@@ -146,7 +240,8 @@ bool processColorRequest(String request)
   Serial.println("Request:");
   Serial.println(request);
 
-  Color color = parseRGB(request);
+/*
+  SColor color = parseRGB(request);
 
   if (ledValues != color)
   {
@@ -155,10 +250,20 @@ bool processColorRequest(String request)
     displayStaticColor();
     saveConfig();
 
-    Serial.println("Color changed");
+    Serial.println("SColor changed");
 
     result = true;
   }
+  */
+
+  Color color(request);
+  singleColor.setColor(color);
+
+  controller.setActivePattern(singleColor);
+
+  //singleColor.update();
+
+  result = true;
 
   return result;
 }
@@ -282,110 +387,16 @@ bool validateColorString(String colorString)
   return true;
 }
 
-bool operator==(const Color& lColor, const Color& rColor)
+bool operator==(const SColor& lColor, const SColor& rColor)
 {
   return (lColor.RED == rColor.RED &&
           lColor.GREEN == rColor.GREEN &&
           lColor.BLUE == rColor.BLUE);
 }
 
-bool operator!=(const Color& lColor, const Color& rColor)
+bool operator!=(const SColor& lColor, const SColor& rColor)
 {
   return (lColor.RED != rColor.RED ||
           lColor.GREEN != rColor.GREEN ||
           lColor.BLUE != rColor.BLUE);
-}
-
-// Fill strip pixels one after another with a color. Strip is NOT cleared
-// first; anything there will be covered pixel by pixel. Pass in color
-// (as a single 'packed' 32-bit value, which you can get by calling
-// strip.Color(red, green, blue) as shown in the loop() function above),
-// and a delay time (in milliseconds) between pixels.
-void colorWipe(uint32_t color, int wait)
-{
-  for (int i = 0; i < strip.numPixels(); i++) // For each pixel in strip...
-  {
-    strip.setPixelColor(i, color);         //  Set pixel's color (in RAM)
-    strip.show();                          //  Update strip to match
-    delay(wait);                           //  Pause for a moment
-  }
-}
-
-// Theater-marquee-style chasing lights. Pass in a color (32-bit value,
-// a la strip.Color(r,g,b) as mentioned above), and a delay time (in ms)
-// between frames.
-void theaterChase(uint32_t color, int wait)
-{
-  for (int a = 0; a < 10; a++) // Repeat 10 times...
-  {
-    for (int b = 0; b < 3; b++) //  'b' counts from 0 to 2...
-    {
-      strip.clear();         //   Set all pixels in RAM to 0 (off)
-      // 'c' counts up from 'b' to end of strip in steps of 3...
-      for (int c = b; c < strip.numPixels(); c += 3)
-        strip.setPixelColor(c, color); // Set pixel 'c' to value 'color'
-
-      strip.show(); // Update strip with new contents
-      delay(wait);  // Pause for a moment
-    }
-  }
-}
-
-// Rainbow cycle along whole strip. Pass delay time (in ms) between frames.
-void rainbow(int wait)
-{
-  // Hue of first pixel runs 5 complete loops through the color wheel.
-  // Color wheel has a range of 65536 but it's OK if we roll over, so
-  // just count from 0 to 5*65536. Adding 256 to firstPixelHue each time
-  // means we'll make 5*65536/256 = 1280 passes through this outer loop:
-  for (long firstPixelHue = 0; firstPixelHue < 5 * 65536; firstPixelHue += 256)
-  {
-    for (int i = 0; i < strip.numPixels(); i++) // For each pixel in strip...
-    {
-      // Offset pixel hue by an amount to make one full revolution of the
-      // color wheel (range of 65536) along the length of the strip
-      // (strip.numPixels() steps):
-      int pixelHue = firstPixelHue + (i * 65536L / strip.numPixels());
-      // strip.ColorHSV() can take 1 or 3 arguments: a hue (0 to 65535) or
-      // optionally add saturation and value (brightness) (each 0 to 255).
-      // Here we're using just the single-argument hue variant. The result
-      // is passed through strip.gamma32() to provide 'truer' colors
-      // before assigning to each pixel:
-
-      strip.setPixelColor(i, strip.gamma32(strip.ColorHSV(pixelHue)));
-
-      if (handleMessage())
-        return;
-    }
-
-    strip.show(); // Update strip with new contents
-    delay(wait);  // Pause for a moment
-  }
-}
-
-// Rainbow-enhanced theater marquee. Pass delay time (in ms) between frames.
-void theaterChaseRainbow(int wait)
-{
-  int firstPixelHue = 0;     // First pixel starts at red (hue 0)
-  for (int a = 0; a < 30; a++) // Repeat 30 times...
-  {
-    for (int b = 0; b < 3; b++) //  'b' counts from 0 to 2...
-    {
-      strip.clear();         //   Set all pixels in RAM to 0 (off)
-      // 'c' counts up from 'b' to end of strip in increments of 3...
-      for (int c = b; c < strip.numPixels(); c += 3)
-      {
-        // hue of pixel 'c' is offset by an amount to make one full
-        // revolution of the color wheel (range 65536) along the length
-        // of the strip (strip.numPixels() steps):
-        int      hue   = firstPixelHue + c * 65536L / strip.numPixels();
-        uint32_t color = strip.gamma32(strip.ColorHSV(hue)); // hue -> RGB
-        strip.setPixelColor(c, color); // Set pixel 'c' to value 'color'
-      }
-
-      strip.show();                // Update strip with new contents
-      delay(wait);                 // Pause for a moment
-      firstPixelHue += 65536 / 90; // One cycle of color wheel over 90 frames
-    }
-  }
 }
