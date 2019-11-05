@@ -7,4 +7,5 @@ class RainbowCycle : public Effect
     RainbowCycle(Adafruit_NeoPixel &strip, short totalSteps);
 
     void update() override;
+    int wheel(byte wheelPos);
 };

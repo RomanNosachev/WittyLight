@@ -49,7 +49,6 @@ const int RGB_PATTERN_LENGTH = 6;
 const String EFFECT_REQUEST_PATTERN = "effect";
 const String COLOR_REQUEST_PATTERN = "color";
 
-bool reconfigSTA();
 void onWiFiConnected();
 
 bool saveConfig();
@@ -57,16 +56,10 @@ bool loadConfig();
 
 void displayStaticColor();
 
-bool handleMessage();
-bool processRequest(String request);
+bool processColorRequest(String request);
 
 SColor parseRGB(String tempColorString);
 bool validateColorString(String tempColorString);
-
-bool operator==(const SColor& lColor, const SColor& rColor);
-bool operator!=(const SColor& lColor, const SColor& rColor);
-
-void nullFunc() {}
 
 void setup()
 {
@@ -106,7 +99,7 @@ void setup()
 
     WiFi.disconnect();
 
-    WiFi.mode(WIFI_AP_STA);
+    WiFi.mode(WIFI_AP);
 
     Serial.print("Setting soft-AP configuration ... ");
     Serial.println(WiFi.softAPConfig(ap_local_IP, ap_gateway, ap_subnet) ? "Ready" : "Failed!");
@@ -144,6 +137,7 @@ void setup()
 
           saveConfig();
 
+          SPIFFS.end();
           ESP.restart();
         }
 
@@ -168,9 +162,14 @@ void onWiFiConnected()
     {
       requestString = request->getParam(COLOR_REQUEST_PATTERN)->value();
 
-      Serial.println(requestString);
-
       processColorRequest(requestString);
+    }
+
+    if (request->hasParam(EFFECT_REQUEST_PATTERN))
+    {
+      requestString = request->getParam(EFFECT_REQUEST_PATTERN)->value();
+
+      processEffectRequest(requestString);
     }
 
     request->send(SPIFFS, "/index.html", String(), false, processor);
@@ -189,11 +188,6 @@ void onWiFiConnected()
   Serial.println("/");
 }
 
-bool reconfigSTA()
-{
-
-}
-
 void loop()
 {
   controller.update();
@@ -203,9 +197,6 @@ String processor(const String& var)
 {
   if (var == "COLOR_STRING")
   {
-    Serial.println("Catched");
-    Serial.println(currentColorString);
-
     return currentColorString;
   }
 }
@@ -233,39 +224,32 @@ SColor parseRGB(String colorString)
     return ledValues;
 }
 
-bool processColorRequest(String request)
+bool processEffectRequest(String request)
 {
-  bool result = false;
-
-  Serial.println("Request:");
+  Serial.println("Effect request:");
   Serial.println(request);
 
-/*
-  SColor color = parseRGB(request);
-
-  if (ledValues != color)
+  if (request == "rainbowCycle")
   {
-    ledValues = color;
+    controller.setActivePattern(effect);
 
-    displayStaticColor();
-    saveConfig();
-
-    Serial.println("SColor changed");
-
-    result = true;
+    return true;
   }
-  */
+
+  return false;
+}
+
+bool processColorRequest(String request)
+{
+  Serial.println("Color request:");
+  Serial.println(request);
 
   Color color(request);
   singleColor.setColor(color);
 
   controller.setActivePattern(singleColor);
 
-  //singleColor.update();
-
-  result = true;
-
-  return result;
+  return true;
 }
 
 bool saveConfig()
@@ -385,18 +369,4 @@ bool validateColorString(String colorString)
 {
   //fixit
   return true;
-}
-
-bool operator==(const SColor& lColor, const SColor& rColor)
-{
-  return (lColor.RED == rColor.RED &&
-          lColor.GREEN == rColor.GREEN &&
-          lColor.BLUE == rColor.BLUE);
-}
-
-bool operator!=(const SColor& lColor, const SColor& rColor)
-{
-  return (lColor.RED != rColor.RED ||
-          lColor.GREEN != rColor.GREEN ||
-          lColor.BLUE != rColor.BLUE);
 }
