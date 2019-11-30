@@ -7,7 +7,6 @@
 #include "Effect.h"
 #include "RainbowCycle.h"
 #include "SingleColor.h"
-#include "Police.h"
 
 #include "EffectController.h"
 
@@ -49,7 +48,6 @@ long interval = 100;
 EffectController controller;
 
 RainbowCycle effect(strip, 255);
-Police policeEffect(strip, 255);
 SingleColor singleColor(strip, Color(0, 0, 0));
 
 const String CONFIG_FILE = "/config.json";
@@ -276,12 +274,13 @@ bool processEffectRequest(String request)
   Serial.println(request);
 
   if (request == "rainbowCycle")
+  {
     controller.setActivePattern(effect);
 
-  if (request == "police")
-    controller.setActivePattern(policeEffect);
+    return true;
+  }
 
-  return true;
+  return false;
 }
 
 bool processColorRequest(String request)

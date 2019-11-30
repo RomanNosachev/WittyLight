@@ -5,15 +5,14 @@ enum Direction { FORWARD, REVERSE };
 
 class Effect
 {
-  private:
-    Direction direction;
-
   protected:
     Adafruit_NeoPixel strip;
 
     Color color;
 
-    short index;
+    Direction direction = FORWARD;
+
+    short index = 0;
     short totalSteps;
 
     void increment();
