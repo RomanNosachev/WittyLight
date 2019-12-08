@@ -19,12 +19,14 @@ Effect::Effect(Adafruit_NeoPixel &strip, short totalSteps, Color color)
   this->strip = strip;
   this->totalSteps = totalSteps;
   this->color = color;
+  this->totalSteps = 255;
 }
 
 Effect::Effect(Adafruit_NeoPixel &strip, Color color)
 {
   this->strip = strip;
   this->color = color;
+  this->totalSteps = 255;
 }
 
 Effect::Effect(Adafruit_NeoPixel &strip, short totalSteps)

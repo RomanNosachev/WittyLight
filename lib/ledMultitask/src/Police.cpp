@@ -7,6 +7,8 @@ Police::Police(Adafruit_NeoPixel &strip, short totalSteps) : Effect(strip, total
 
 void Police::update()
 {
+  strip.fill(strip.Color(0, 0, 0), 0, strip.numPixels());
+
   switch (index % 4)
   {
     case 1:
@@ -48,6 +50,4 @@ void Police::update()
   strip.show();
 
   increment();
-
-  strip.fill(strip.Color(0, 0, 0), 0, strip.numPixels());
 }
