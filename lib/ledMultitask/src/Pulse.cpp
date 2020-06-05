@@ -10,8 +10,6 @@ void Pulse::update()
   strip.fill(color.getColor(), 0, strip.numPixels());
   strip.setBrightness(index);
 
-  Serial.println(index);
-
   if (index == 254)
     direction = REVERSE;
   else if (index <= 1)

@@ -1,6 +1,9 @@
-#include <FS.h>
-#include <ESP8266WiFi.h>
+#include <FS.h>                 //for ESP8266
+//#include <SPIFFS.h>           //for ESP32
+#include <ESP8266WiFi.h>        //for ESP8266
+//#include <Wifi.h>             //for ESP32
 #include <ESPAsyncWebServer.h>
+#include <ESPAsyncUDP.h>
 #include <ArduinoJson.h>
 #include <Adafruit_NeoPixel.h>
 
@@ -14,17 +17,22 @@
 
 #include <PubSubClient.h>
 
+#define BUFFER_SIZE 100
+
 String ssid;
 String password;
 
 AsyncWebServer server(80);
+AsyncUDP udp;
 
-const char *mqtt_server = "192.168.0.100";        // host
-const int mqtt_port = 1883;                       // port
-const char *mqtt_user = "";                       // login
-const char *mqtt_pass = "";                       // pass
+const uint16_t updPort = 1234;
 
-const char *lightTopic = "light";                 //topic name
+String mqttServer = "192.168.0.100";             //host
+const int mqttPort = 1883;                       //port
+const char *mqttUser = "";                       //login
+const char *mqttPass = "";                       //pass
+
+const char *lightTopic = "light";                //topic name
 const char *effectTopic = "light/effect";
 const char *colorTopic = "light/color";
 
@@ -33,16 +41,14 @@ PubSubClient client(wclient);
 
 String clientId;
 
-#define BUFFER_SIZE 100
+IPAddress apLocal_IP(192, 168, 0, 1);
+IPAddress apGateway(192, 168, 0, 1);
+IPAddress apSubnet(255, 255, 255, 0);
 
-IPAddress ap_local_IP(192, 168, 0, 1);
-IPAddress ap_gateway(192, 168, 0, 1);
-IPAddress ap_subnet(255, 255, 255, 0);
+const int ledPin = 5;
+const int ledCount = 60;
 
-const int led_pin = 5;
-const int led_count = 60;
-
-Adafruit_NeoPixel strip(led_count, led_pin, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip(ledCount, ledPin, NEO_GRB + NEO_KHZ800);
 
 long lastUpdate;
 long interval = 100;
@@ -80,7 +86,7 @@ void reconnect()
 {
   Serial.println("Connection to MQTT-broker attempt...");
 
-  client.connect(clientId.c_str(), mqtt_user, mqtt_pass);
+  client.connect(clientId.c_str(), mqttUser, mqttPass);
 
   if (client.connected())
   {
@@ -116,6 +122,24 @@ void callback(char* topic, byte* payload, unsigned int length)
     processColorRequest(message);
 }
 
+void onUdpPacket(AsyncUDPPacket packet)
+{
+  Serial.print("Datagram received from: ");
+  Serial.print(packet.remoteIP());
+  Serial.print(" with content: ");
+  Serial.write(packet.data(), packet.length());
+  Serial.println();
+
+  String broadcastMessage = (char*) packet.data();
+
+  if (broadcastMessage == "WittyServer" && !client.connected())
+  {
+    mqttServer = packet.remoteIP().toString().c_str();
+
+    Serial.println("Server IP changed");
+  }
+}
+
 void setup()
 {
   strip.begin();
@@ -134,7 +158,8 @@ void setup()
 
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+
+  WiFi.begin(ssid.c_str(), password.c_str());
 
   int attemptsCount = 30;
 
@@ -155,9 +180,9 @@ void setup()
     WiFi.mode(WIFI_AP);
 
     Serial.print("Setting soft-AP configuration ... ");
-    Serial.println(WiFi.softAPConfig(ap_local_IP, ap_gateway, ap_subnet) ? "Ready" : "Failed!");
+    Serial.println(WiFi.softAPConfig(apLocal_IP, apGateway, apSubnet) ? "Ready" : "Failed!");
 
-    bool apReady = WiFi.softAP("WittyLight_" + WiFi.softAPmacAddress());
+    bool apReady = WiFi.softAP(("WittyLight_" + WiFi.softAPmacAddress()).c_str());
 
     Serial.print("Starting soft-AP ... ");
     Serial.println(apReady ? "Ready" : "Failed!");
@@ -203,7 +228,19 @@ void setup()
   {
     onWiFiConnected();
 
-    client.setServer(mqtt_server, mqtt_port);
+    if (udp.listen(updPort))
+    {
+      Serial.print("UDP Listening on: ");
+      Serial.print(WiFi.localIP());
+      Serial.print(":");
+      Serial.println(updPort);
+
+      udp.onPacket([](AsyncUDPPacket packet) {
+        onUdpPacket(packet);
+      });
+    }
+
+    client.setServer(mqttServer.c_str(), mqttPort);
     client.setCallback(callback);
 
     clientId = "WittyLight_" + WiFi.softAPmacAddress();
